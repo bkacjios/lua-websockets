@@ -6,6 +6,7 @@ local handshake = require'websocket.handshake'
 local debug = require'debug'
 local tconcat = table.concat
 local tinsert = table.insert
+local ssl = require'ssl'
 
 local ev = function(ws)
   ws = ws or {}
@@ -74,7 +75,9 @@ local ev = function(ws)
     end
   end
   local handle_socket_err = function(err,io,sock)
-    if self.state == 'OPEN' then
+    if err == "wantread" or err == "wantwrite" then
+      -- Leave it alone because Secure Connection is trying to establish
+    elseif self.state == 'OPEN' then
       on_close(false,1006,err)
     elseif self.state ~= 'CLOSED' then
       on_error(err)
@@ -106,13 +109,27 @@ local ev = function(ws)
     async_send(encoded, nil, handle_socket_err)
   end
 
-  self.connect = function(_,url,ws_protocol)
+  self.connect = function(_,url,ws_protocol,ssl_params)
     if self.state ~= 'CLOSED' then
       on_error('wrong state',true)
       return
     end
+    -- Preconnect for SSL if needed
+    assert(not sock)
+    sock = socket.tcp()
+    fd = sock:getfd()
+    assert(fd > -1)
+    -- set non blocking
+    sock:settimeout(0)
+    sock:setoption('tcp-nodelay',true)
     local protocol,host,port,uri = tools.parse_url(url)
-    if protocol ~= 'ws' then
+    local connected,err = sock:connect(host,port)
+    if protocol == 'wss' then
+      sock = ssl.wrap(sock,ssl_params)
+      sock:dohandshake()
+      -- We have to re-initialize values that were set previously because it's a new socket
+      sock:settimeout(0)
+    elseif protocol ~= 'ws' then
       on_error('bad protocol')
       return
     end
@@ -123,13 +140,6 @@ local ev = function(ws)
         ws_protocols_tbl = ws_protocol
     end
     self.state = 'CONNECTING'
-    assert(not sock)
-    sock = socket.tcp()
-    fd = sock:getfd()
-    assert(fd > -1)
-    -- set non blocking
-    sock:settimeout(0)
-    sock:setoption('tcp-nodelay',true)
     async_send,send_io_stop = require'websocket.ev_common'.async_send(sock,loop)
     handshake_io = ev.IO.new(
       function(loop,connect_io)

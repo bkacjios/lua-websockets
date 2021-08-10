@@ -3,6 +3,7 @@ local socket = require'socket'
 local tools = require'websocket.tools'
 local frame = require'websocket.frame'
 local handshake = require'websocket.handshake'
+local ssl = require'ssl'
 local tconcat = table.concat
 local tinsert = table.insert
 local ev
@@ -13,7 +14,9 @@ clients[true] = {}
 
 local client = function(sock,protocol)
   assert(sock)
-  sock:setoption('tcp-nodelay',true)
+  if sock.setoption then
+    sock:setoption('tcp-nodelay',true)
+  end
   local fd = sock:getfd()
   local message_io
   local close_timer
@@ -46,7 +49,9 @@ local client = function(sock,protocol)
     if user_on_close then
       user_on_close(self,was_clean,code,reason or '')
     end
-    sock:shutdown()
+    if sock.shutdown then
+      sock:shutdown()
+    end
     sock:close()
   end
   
@@ -167,6 +172,10 @@ local listen = function(opts)
     error(err)
   end
   listener:settimeout(0)
+
+  if opts.ssl_params then
+    self.ssl_ctx = assert(ssl.newcontext(opts.ssl_params))
+  end
   
   self.sock = function()
     return listener
@@ -175,6 +184,10 @@ local listen = function(opts)
   local listen_io = ev.IO.new(
     function()
       local client_sock = listener:accept()
+      if self.ssl_ctx then
+        client_sock = assert(ssl.wrap(client_sock, self.ssl_ctx))
+        local status, err = client_sock:dohandshake()
+      end
       client_sock:settimeout(0)
       assert(client_sock)
       local request = {}

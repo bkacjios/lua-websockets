@@ -62,9 +62,10 @@ end
 
 local accept_upgrade = function(request,protocols)
   local headers = http_headers(request)
-  if headers['upgrade'] ~= 'websocket' or
+  if not headers['upgrade'] or
+  headers['upgrade']:lower() ~= 'websocket' or
   not headers['connection'] or
-  not headers['connection']:match('upgrade') or
+  not headers['connection']:lower():match('upgrade') or
   headers['sec-websocket-key'] == nil or
   headers['sec-websocket-version'] ~= '13' then
     return nil,'HTTP/1.1 400 Bad Request\r\n\r\n'
@@ -86,7 +87,7 @@ local accept_upgrade = function(request,protocols)
   local lines = {
     'HTTP/1.1 101 Switching Protocols',
     'Upgrade: websocket',
-    'Connection: '..headers['connection'],
+    'Connection: Upgrade',
     string.format('Sec-WebSocket-Accept: %s',sec_websocket_accept(headers['sec-websocket-key'])),
   }
   if prot then
